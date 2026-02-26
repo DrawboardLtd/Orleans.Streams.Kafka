@@ -1,9 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
     <Description>Orleans streaming provider for Kafka.</Description>
     <PackageTags>orleans kafka streams providers streamprovider confluent</PackageTags>
-    <LangVersion>10</LangVersion>
+    <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <!-- vendor packages -->
   <ItemGroup>
@@ -14,14 +13,9 @@
     <PackageReference Include="Microsoft.Orleans.CodeGenerator.MSBuild" Version="$(OrleansVersion)" PrivateAssets="all">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Confluent.SchemaRegistry.Serdes" Version="1.3.0" />
+    <PackageReference Include="Confluent.SchemaRegistry.Serdes.Avro" Version="2.12.0" />
   </ItemGroup>
-  <!-- packages -->
-  <ItemGroup Condition="'$(Configuration)' == 'Release'">
+  <ItemGroup>
     <PackageReference Include="Orleans.Streams.Utils" Version="$(StreamUtilsVersion)" />
-  </ItemGroup>
-  <!-- libraries -->
-  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
-    <ProjectReference Include="..\..\Orleans.Streams.Utils\Orleans.Streams.Utils\Orleans.Streams.Utils.csproj" />
   </ItemGroup>
 </Project>
