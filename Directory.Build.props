@@ -21,7 +21,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
   </PropertyGroup>
 
   <!-- Shared Package Versions -->
@@ -29,6 +29,6 @@
     <OrleansVersion>3.6.2</OrleansVersion>
     <StreamUtilsVersion>11.1.0</StreamUtilsVersion>
     <ConfluentKafkaVersion>2.13.1</ConfluentKafkaVersion>
-    <MicrosoftExtensionsVersion>8.0.0</MicrosoftExtensionsVersion>
+    <MicrosoftExtensionsVersion>9.0.0</MicrosoftExtensionsVersion>
   </PropertyGroup>
 </Project>
