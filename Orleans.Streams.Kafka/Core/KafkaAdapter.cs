@@ -74,7 +74,8 @@ namespace Orleans.Streams.Kafka.Core
 					_options.ImportRequestContext ? requestContext : null
 				);
 
-				await _producer.Produce(batch);
+				var kafkaTopicName = (_options.TopicPrefix ?? string.Empty) + streamNamespace;
+				await _producer.Produce(batch, kafkaTopicName);
 			}
 			catch (Exception ex)
 			{

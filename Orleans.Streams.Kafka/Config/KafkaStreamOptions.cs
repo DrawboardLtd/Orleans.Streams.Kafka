@@ -8,6 +8,14 @@ namespace Orleans.Streams.Kafka.Config
 		public IList<TopicConfig> Topics { get; set; } = new List<TopicConfig>();
 		public IList<string> BrokerList { get; set; }
 		public string ConsumerGroupId { get; set; } = "orleans-kafka";
+
+		/// <summary>
+		/// Optional prefix prepended to every Kafka topic name at the broker level.
+		/// The Orleans stream namespace (used by grains for subscriptions) is never affected.
+		/// Use this to isolate dev environments that share a Redpanda/Kafka instance
+		/// (e.g. "dev-alice-" produces/consumes "dev-alice-MyTopic" while grains still subscribe via "MyTopic").
+		/// </summary>
+		public string TopicPrefix { get; set; } = string.Empty;
 		public TimeSpan PollTimeout { get; set; } = TimeSpan.FromMilliseconds(100);
 		public TimeSpan AdminRequestTimeout { get; set; } = TimeSpan.FromSeconds(5);
 		public ConsumeMode ConsumeMode { get; set; } = ConsumeMode.LastCommittedMessage;

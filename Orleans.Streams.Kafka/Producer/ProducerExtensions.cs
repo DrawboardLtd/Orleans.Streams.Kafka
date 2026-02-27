@@ -7,9 +7,9 @@ namespace Orleans.Streams.Kafka.Producer
 {
 	public static class ProducerExtensions
 	{
-		public static Task Produce(this IProducer<byte[], KafkaBatchContainer> producer, KafkaBatchContainer batch)
+		public static Task Produce(this IProducer<byte[], KafkaBatchContainer> producer, KafkaBatchContainer batch, string topicName = null)
 			=> Task.Run(() => producer.ProduceAsync(
-				batch.StreamNamespace,
+				topicName ?? batch.StreamNamespace,
 				new Message<byte[], KafkaBatchContainer>
 				{
 					Key = batch.StreamGuid.ToByteArray(),

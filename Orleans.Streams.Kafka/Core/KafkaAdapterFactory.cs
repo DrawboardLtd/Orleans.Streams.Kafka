@@ -138,12 +138,14 @@ namespace Orleans.Streams.Kafka.Core
 				var meta = admin.GetMetadata(_options.AdminRequestTimeout);
 				var currentMetaTopics = meta.Topics.ToList();
 
+				var prefix = _options.TopicPrefix ?? string.Empty;
+
 				var props = new List<QueueProperties>();
 				var autoProps = new List<(QueueProperties props, short replicationFactor, ulong? retentionPeriodInMs )>();
 
 				foreach (var topic in _options.Topics)
 				{
-					if (!topic.AutoCreate || meta.Topics.Any(kt => kt.Topic == topic.Name))
+					if (!topic.AutoCreate || meta.Topics.Any(kt => kt.Topic == prefix + topic.Name))
 						continue;
 
 					var noOfPartitions = topic.Partitions == -1 ? 1 : topic.Partitions;
@@ -155,11 +157,11 @@ namespace Orleans.Streams.Kafka.Core
 					}
 				}
 
-				AsyncHelper.RunSync(() => CreateAutoTopics(admin, autoProps));
+				AsyncHelper.RunSync(() => CreateAutoTopics(admin, autoProps, prefix));
 
 				props.AddRange(
 					from kafkaTopic in currentMetaTopics
-					join userTopic in _options.Topics on kafkaTopic.Topic equals userTopic.Name
+					join userTopic in _options.Topics on kafkaTopic.Topic equals prefix + userTopic.Name
 					from partition in kafkaTopic.Partitions
 					select CreateQueueProperty(userTopic, partition)
 				);
@@ -184,7 +186,7 @@ namespace Orleans.Streams.Kafka.Core
 				);
 		}
 
-		private static Task CreateAutoTopics(IAdminClient admin, IEnumerable<(QueueProperties prop, short replicationFactor, ulong? retentionPeriodInMs)> autoQueues)
+		private static Task CreateAutoTopics(IAdminClient admin, IEnumerable<(QueueProperties prop, short replicationFactor, ulong? retentionPeriodInMs)> autoQueues, string topicPrefix = "")
 		{
 			var topics = autoQueues
 					.GroupBy(queue => queue.prop.Namespace)
@@ -196,7 +198,7 @@ namespace Orleans.Streams.Kafka.Core
 
 							var topicSpecification = new TopicSpecification
 							                         {
-								                         Name = queues.Key,
+								                         Name = topicPrefix + queues.Key,
 								                         NumPartitions = queues.Count(),
 								                         ReplicationFactor = tuple.replicationFactor
 							                         };

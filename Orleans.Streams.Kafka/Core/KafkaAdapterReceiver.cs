@@ -75,7 +75,8 @@ namespace Orleans.Streams.Kafka.Core
 					break;
 			}
 
-			_consumer.Assign(new TopicPartitionOffset(_queueProperties.Namespace, (int)_queueProperties.PartitionId, offsetMode));
+			var kafkaTopicName = (_options.TopicPrefix ?? string.Empty) + _queueProperties.Namespace;
+			_consumer.Assign(new TopicPartitionOffset(kafkaTopicName, (int)_queueProperties.PartitionId, offsetMode));
 
 			return Task.CompletedTask;
 		}
