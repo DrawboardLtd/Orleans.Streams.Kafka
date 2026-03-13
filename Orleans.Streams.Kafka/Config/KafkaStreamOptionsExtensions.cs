@@ -27,18 +27,21 @@ namespace Orleans.Streams.Kafka.Config
 
 		private static TClientConfig CreateCommonProperties<TClientConfig>(KafkaStreamOptions options)
 			where TClientConfig : ClientConfig, new()
-			=> new TClientConfig
+		{
+			var config = new TClientConfig
 			{
 				BootstrapServers = string.Join(",", options.BrokerList),
-				BrokerVersionFallback = options.BrokerVersionFallback,
-				ApiVersionRequest = options.ApiVersionRequest,
-				ApiVersionRequestTimeoutMs = options.ApiVersionFallbackMs,
-				SaslMechanism = (Confluent.Kafka.SaslMechanism)(int)options.SaslMechanism,
 				SecurityProtocol = (Confluent.Kafka.SecurityProtocol)(int)options.SecurityProtocol,
 				SslCaLocation = options.SslCaLocation,
 				SaslUsername = options.SaslUserName,
 				SaslPassword = options.SaslPassword
 			};
+
+			if (options.SecurityProtocol == SecurityProtocol.SaslPlaintext || options.SecurityProtocol == SecurityProtocol.SaslSsl)
+				config.SaslMechanism = (Confluent.Kafka.SaslMechanism)(int)options.SaslMechanism;
+
+			return config;
+		}
 	}
 
 	public static class KafkaStreamOptionsPublicExtensions
