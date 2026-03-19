@@ -46,9 +46,9 @@ namespace Orleans.Streams.Kafka.Config
 				config.Partitions = topicCreationConfig.Partitions;
 				config.ReplicationFactor = topicCreationConfig.ReplicationFactor;
 				if (topicCreationConfig.RetentionPeriodInMs.HasValue)
-				{
 					config.RetentionPeriodInMs = topicCreationConfig.RetentionPeriodInMs;
-				}
+				if (topicCreationConfig.RetentionBytes.HasValue)
+					config.RetentionBytes = topicCreationConfig.RetentionBytes;
 			}
 
 			Topics.Add(config);
@@ -141,6 +141,12 @@ namespace Orleans.Streams.Kafka.Config
 		/// </summary>
 		/// <remarks>7 days by default at broker level if not set</remarks>
 		public ulong? RetentionPeriodInMs { get; set; }
+
+		/// <summary>
+		/// If set, the topic will be created with a per-partition byte retention limit (retention.bytes).
+		/// If not set, the broker default applies (unlimited).
+		/// </summary>
+		public ulong? RetentionBytes { get; set; }
 	}
 
 	public class TopicCreationConfig
@@ -172,6 +178,12 @@ namespace Orleans.Streams.Kafka.Config
 		/// </summary>
 		/// <remarks>7 days by default</remarks>
 		public ulong? RetentionPeriodInMs { get; set; }
+
+		/// <summary>
+		/// If set, the topic will be created with a per-partition byte retention limit (retention.bytes).
+		/// If not set, the broker default applies (unlimited).
+		/// </summary>
+		public ulong? RetentionBytes { get; set; }
 	}
 
 	public enum ConsumeMode

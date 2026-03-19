@@ -141,7 +141,7 @@ namespace Orleans.Streams.Kafka.Core
 				var prefix = _options.TopicPrefix ?? string.Empty;
 
 				var props = new List<QueueProperties>();
-				var autoProps = new List<(QueueProperties props, short replicationFactor, ulong? retentionPeriodInMs )>();
+				var autoProps = new List<(QueueProperties props, short replicationFactor, ulong? retentionPeriodInMs, ulong? retentionBytes)>();
 
 				foreach (var topic in _options.Topics)
 				{
@@ -153,11 +153,17 @@ namespace Orleans.Streams.Kafka.Core
 					{
 						var prop = CreateQueueProperty(topic, partitionId: i);
 						props.Add(prop);
-						autoProps.Add((prop, topic.ReplicationFactor, topic.RetentionPeriodInMs));
+						autoProps.Add((prop, topic.ReplicationFactor, topic.RetentionPeriodInMs, topic.RetentionBytes));
 					}
 				}
 
 				AsyncHelper.RunSync(() => CreateAutoTopics(admin, autoProps, prefix));
+
+				var retentionTargets = _options.Topics
+					.Where(t => t.RetentionBytes.HasValue)
+					.Select(t => (topicName: prefix + t.Name, retentionBytes: t.RetentionBytes.Value))
+					.ToList();
+				AsyncHelper.RunSync(() => EnforceTopicRetention(admin, retentionTargets));
 
 				props.AddRange(
 					from kafkaTopic in currentMetaTopics
@@ -186,7 +192,7 @@ namespace Orleans.Streams.Kafka.Core
 				);
 		}
 
-		private static Task CreateAutoTopics(IAdminClient admin, IEnumerable<(QueueProperties prop, short replicationFactor, ulong? retentionPeriodInMs)> autoQueues, string topicPrefix = "")
+		private static Task CreateAutoTopics(IAdminClient admin, IEnumerable<(QueueProperties prop, short replicationFactor, ulong? retentionPeriodInMs, ulong? retentionBytes)> autoQueues, string topicPrefix = "")
 		{
 			var topics = autoQueues
 					.GroupBy(queue => queue.prop.Namespace)
@@ -203,16 +209,13 @@ namespace Orleans.Streams.Kafka.Core
 								                         ReplicationFactor = tuple.replicationFactor
 							                         };
 
+							var configs = new Dictionary<string, string>();
 							if (tuple.retentionPeriodInMs.HasValue)
-							{
-								topicSpecification.Configs = new Dictionary<string, string>()
-								                             {
-									                             {
-										                             "retention.ms",
-										                             tuple.retentionPeriodInMs.ToString()
-									                             }
-								                             };
-							}
+								configs["retention.ms"] = tuple.retentionPeriodInMs.ToString();
+							if (tuple.retentionBytes.HasValue)
+								configs["retention.bytes"] = tuple.retentionBytes.ToString();
+							if (configs.Count > 0)
+								topicSpecification.Configs = configs;
 
 							result.Add(topicSpecification);
 
@@ -223,6 +226,18 @@ namespace Orleans.Streams.Kafka.Core
 
 			return topics.Any()
 				? admin.CreateTopicsAsync(topics)
+				: Task.CompletedTask;
+		}
+
+		private static Task EnforceTopicRetention(IAdminClient admin, IEnumerable<(string topicName, ulong retentionBytes)> topics)
+		{
+			var configs = topics.ToDictionary(
+				t => new ConfigResource { Type = ResourceType.Topic, Name = t.topicName },
+				t => new List<ConfigEntry> { new ConfigEntry { Name = "retention.bytes", Value = t.retentionBytes.ToString() } }
+			);
+
+			return configs.Any()
+				? admin.AlterConfigsAsync(configs)
 				: Task.CompletedTask;
 		}
 	}
