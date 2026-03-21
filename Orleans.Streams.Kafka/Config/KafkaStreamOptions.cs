@@ -19,7 +19,7 @@ namespace Orleans.Streams.Kafka.Config
 		public TimeSpan PollTimeout { get; set; } = TimeSpan.FromMilliseconds(100);
 		public TimeSpan AdminRequestTimeout { get; set; } = TimeSpan.FromSeconds(5);
 		public ConsumeMode ConsumeMode { get; set; } = ConsumeMode.LastCommittedMessage;
-		public TimeSpan ProducerTimeout { get; set; } = TimeSpan.FromSeconds(5);
+		public TimeSpan ProducerTimeout { get; set; } = TimeSpan.FromSeconds(30);
 		public bool ApiVersionRequest { get; set; } = true;
 		public string BrokerVersionFallback { get; set; } = "0.10.0.0";
 		public int? ApiVersionFallbackMs { get; set; }
