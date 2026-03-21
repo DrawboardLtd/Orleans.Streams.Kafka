@@ -8,6 +8,9 @@ namespace Orleans.Streams.Kafka.Config
 		{
 			var config = CreateCommonProperties<ProducerConfig>(options);
 			config.MessageTimeoutMs = (int)options.ProducerTimeout.TotalMilliseconds;
+			config.Acks = Confluent.Kafka.Acks.All;
+			config.MessageSendMaxRetries = 5;
+			config.RetryBackoffMs = 200;
 
 			return config;
 		}
