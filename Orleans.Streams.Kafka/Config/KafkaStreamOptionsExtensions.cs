@@ -9,8 +9,10 @@ namespace Orleans.Streams.Kafka.Config
 			var config = CreateCommonProperties<ProducerConfig>(options);
 			config.MessageTimeoutMs = (int)options.ProducerTimeout.TotalMilliseconds;
 			config.Acks = Confluent.Kafka.Acks.All;
-			config.MessageSendMaxRetries = 5;
-			config.RetryBackoffMs = 200;
+			// Let retries be bounded by MessageTimeoutMs (librdkafka default is INT32_MAX).
+			// Previously capped at 5 which exhausted retries in ~1s, ignoring the 30s timeout.
+			config.RetryBackoffMs = 100;
+			config.RetryBackoffMaxMs = 1000;
 
 			return config;
 		}

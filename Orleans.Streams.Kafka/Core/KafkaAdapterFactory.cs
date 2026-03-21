@@ -159,6 +159,19 @@ namespace Orleans.Streams.Kafka.Core
 
 				AsyncHelper.RunSync(() => CreateAutoTopics(admin, autoProps, prefix));
 
+				// Wait for newly created topics to have leaders before producers start.
+				// CreateTopicsAsync returns when the broker accepts the request, not when
+				// topics are ready for produce/consume.
+				if (autoProps.Count > 0)
+				{
+					var topicNames = autoProps
+						.Select(a => prefix + a.props.Namespace)
+						.Distinct()
+						.ToHashSet();
+
+					AsyncHelper.RunSync(() => WaitForTopicLeaders(admin, topicNames));
+				}
+
 				var retentionTargets = _options.Topics
 					.Where(t => t.RetentionBytes.HasValue)
 					.Select(t => (topicName: prefix + t.Name, retentionBytes: t.RetentionBytes.Value))
@@ -227,6 +240,30 @@ namespace Orleans.Streams.Kafka.Core
 			return topics.Any()
 				? admin.CreateTopicsAsync(topics)
 				: Task.CompletedTask;
+		}
+
+		private static async Task WaitForTopicLeaders(IAdminClient admin, ISet<string> topicNames)
+		{
+			const int maxAttempts = 20;
+			const int delayMs = 500;
+
+			for (var attempt = 0; attempt < maxAttempts; attempt++)
+			{
+				var meta = admin.GetMetadata(TimeSpan.FromSeconds(5));
+				var allReady = topicNames.All(name =>
+				{
+					var topic = meta.Topics.FirstOrDefault(t => t.Topic == name);
+					return topic != null
+						&& !topic.Error.IsError
+						&& topic.Partitions.Count > 0
+						&& topic.Partitions.All(p => p.Leader >= 0);
+				});
+
+				if (allReady)
+					return;
+
+				await Task.Delay(delayMs);
+			}
 		}
 
 		private static Task EnforceTopicRetention(IAdminClient admin, IEnumerable<(string topicName, ulong retentionBytes)> topics)
