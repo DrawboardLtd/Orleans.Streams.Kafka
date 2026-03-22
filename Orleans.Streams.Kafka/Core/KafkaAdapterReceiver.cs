@@ -28,6 +28,8 @@ namespace Orleans.Streams.Kafka.Core
 		private IConsumer<byte[], byte[]> _consumer;
 		private Task _commitPromise = Task.CompletedTask;
 		private Task<IList<IBatchContainer>> _consumePromise;
+		private long _pollCount;
+		private long _emptyPollCount;
 
 		public KafkaAdapterReceiver(
 			string providerName,
@@ -175,9 +177,20 @@ namespace Orleans.Streams.Kafka.Core
 					batches.Add(batchContainer);
 				}
 
+				_pollCount++;
 				if (batches.Count > 0)
+				{
 					_logger.LogInformation("[KafkaReceiver] Polled {Count} messages from topic={Topic}, partition={Partition}",
 						batches.Count, _queueProperties.Namespace, _queueProperties.PartitionId);
+					_emptyPollCount = 0;
+				}
+				else
+				{
+					_emptyPollCount++;
+					if (_emptyPollCount == 1 || _emptyPollCount % 300 == 0) // log first empty poll, then every ~30s
+						_logger.LogWarning("[KafkaReceiver] Empty poll #{EmptyCount} (total polls: {TotalPolls}) topic={Topic}, partition={Partition}",
+							_emptyPollCount, _pollCount, _queueProperties.Namespace, _queueProperties.PartitionId);
+				}
 
 				return batches;
 			}
