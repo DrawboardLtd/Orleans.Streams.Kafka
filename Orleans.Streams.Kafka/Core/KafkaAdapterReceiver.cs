@@ -76,6 +76,8 @@ namespace Orleans.Streams.Kafka.Core
 			}
 
 			var kafkaTopicName = (_options.TopicPrefix ?? string.Empty) + _queueProperties.Namespace;
+			_logger.LogInformation("[KafkaReceiver] Initialize: topic={Topic}, partition={Partition}, offset={Offset}, consumeMode={ConsumeMode}, brokers={Brokers}",
+				kafkaTopicName, _queueProperties.PartitionId, offsetMode, _options.ConsumeMode, _options.BrokerList);
 			_consumer.Assign(new TopicPartitionOffset(kafkaTopicName, (int)_queueProperties.PartitionId, offsetMode));
 
 			return Task.CompletedTask;
@@ -172,6 +174,10 @@ namespace Orleans.Streams.Kafka.Core
 
 					batches.Add(batchContainer);
 				}
+
+				if (batches.Count > 0)
+					_logger.LogInformation("[KafkaReceiver] Polled {Count} messages from topic={Topic}, partition={Partition}",
+						batches.Count, _queueProperties.Namespace, _queueProperties.PartitionId);
 
 				return batches;
 			}

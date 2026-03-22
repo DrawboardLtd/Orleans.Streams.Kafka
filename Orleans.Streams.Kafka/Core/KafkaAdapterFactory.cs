@@ -79,6 +79,10 @@ namespace Orleans.Streams.Kafka.Core
 			);
 
 			_queueProperties = GetQueuesProperties().ToDictionary(q => q.QueueName);
+			_logger.LogInformation("[KafkaFactory] Created for provider={Name}, topics configured={TopicCount}, queues discovered={QueueCount}, prefix={Prefix}, brokers={Brokers}",
+				name, options.Topics?.Count ?? 0, _queueProperties.Count, options.TopicPrefix, options.BrokerList);
+			foreach (var q in _queueProperties)
+				_logger.LogInformation("[KafkaFactory] Queue: {QueueName} namespace={Namespace} partition={Partition}", q.Key, q.Value.Namespace, q.Value.PartitionId);
 			_streamQueueMapper = new ExternalQueueMapper(_queueProperties.Values);
 
 			_config = _options.ToAdminProperties();
@@ -139,6 +143,8 @@ namespace Orleans.Streams.Kafka.Core
 				var currentMetaTopics = meta.Topics.ToList();
 
 				var prefix = _options.TopicPrefix ?? string.Empty;
+				_logger.LogInformation("[KafkaFactory] GetQueuesProperties: prefix={Prefix}, configured topics={ConfiguredCount}, existing Kafka topics={ExistingCount}",
+					prefix, _options.Topics?.Count ?? 0, currentMetaTopics.Count);
 
 				var props = new List<QueueProperties>();
 				var autoProps = new List<(QueueProperties props, short replicationFactor, ulong? retentionPeriodInMs, ulong? retentionBytes)>();
@@ -178,12 +184,17 @@ namespace Orleans.Streams.Kafka.Core
 					.ToList();
 				AsyncHelper.RunSync(() => EnforceTopicRetention(admin, retentionTargets));
 
-				props.AddRange(
+				var joinedProps = (
 					from kafkaTopic in currentMetaTopics
 					join userTopic in _options.Topics on kafkaTopic.Topic equals prefix + userTopic.Name
 					from partition in kafkaTopic.Partitions
 					select CreateQueueProperty(userTopic, partition)
-				);
+				).ToList();
+
+				_logger.LogInformation("[KafkaFactory] Topic join: auto-created={AutoCreated}, joined from existing={Joined}, total queues={Total}",
+					props.Count, joinedProps.Count, props.Count + joinedProps.Count);
+
+				props.AddRange(joinedProps);
 
 				return props;
 			}
