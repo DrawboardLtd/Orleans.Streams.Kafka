@@ -198,6 +198,17 @@ namespace Orleans.Streams.Kafka.Core
 			{
 				return new List<IBatchContainer>();
 			}
+			catch (ConsumeException ex) when (IsTransientError(ex.Error))
+			{
+				// Transient broker errors (e.g. "Not coordinator" while __consumer_offsets
+				// leader is still electing) are safe to retry.  Return empty so the
+				// PersistentStreamPullingAgent retries on its normal poll interval instead
+				// of entering its multi-minute error-backoff cycle.
+				_logger.LogWarning(ex,
+					"[KafkaReceiver] Transient consume error (code={Code}), will retry on next poll. topic={Topic}, partition={Partition}",
+					ex.Error.Code, _queueProperties.Namespace, _queueProperties.PartitionId);
+				return new List<IBatchContainer>();
+			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "Failed to poll for messages queueId: {@queueProperties}", _queueProperties);
@@ -208,6 +219,9 @@ namespace Orleans.Streams.Kafka.Core
 				cancellation.Dispose();
 			}
 		}
+
+		private static bool IsTransientError(Error error)
+			=> !error.IsFatal;
 
 		private Task TrackMessage(IBatchContainer container)
 		{
