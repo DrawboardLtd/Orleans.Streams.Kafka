@@ -33,6 +33,13 @@ namespace Orleans.Streams.Kafka.Config
 		public bool ImportRequestContext { get; set; } = false;
 
 		/// <summary>
+		/// How long (ms) resolved broker addresses are cached before re-resolving DNS.
+		/// Keeps clients resilient to broker pods moving to new IPs.
+		/// Default 5000 (5s). Set 0 to re-resolve on every connect attempt.
+		/// </summary>
+		public int BrokerAddressTtl { get; set; } = 5000;
+
+		/// <summary>
 		/// Add a new internal topic.
 		/// </summary>
 		/// <param name="name">Topic Name</param>
