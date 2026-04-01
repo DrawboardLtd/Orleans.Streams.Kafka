@@ -182,7 +182,7 @@ namespace Orleans.Streams.Kafka.Core
 					.Where(t => t.RetentionBytes.HasValue)
 					.Select(t => (topicName: prefix + t.Name, retentionBytes: t.RetentionBytes.Value))
 					.ToList();
-				AsyncHelper.RunSync(() => EnforceTopicRetention(admin, retentionTargets));
+				AsyncHelper.RunSync(() => EnforceTopicRetention(admin, retentionTargets, _logger));
 
 				var joinedProps = (
 					from kafkaTopic in currentMetaTopics
@@ -277,16 +277,47 @@ namespace Orleans.Streams.Kafka.Core
 			}
 		}
 
-		private static Task EnforceTopicRetention(IAdminClient admin, IEnumerable<(string topicName, ulong retentionBytes)> topics)
+		private static async Task EnforceTopicRetention(IAdminClient admin, IEnumerable<(string topicName, ulong retentionBytes)> topics, ILogger logger = null)
 		{
-			var configs = topics.ToDictionary(
-				t => new ConfigResource { Type = ResourceType.Topic, Name = t.topicName },
-				t => new List<ConfigEntry> { new ConfigEntry { Name = "retention.bytes", Value = t.retentionBytes.ToString() } }
-			);
+			var topicList = topics.ToList();
+			if (topicList.Count == 0)
+				return;
 
-			return configs.Any()
-				? admin.AlterConfigsAsync(configs)
-				: Task.CompletedTask;
+			// Read current config to avoid unnecessary AlterConfigs calls that churn the controller log.
+			var resources = topicList
+				.Select(t => new ConfigResource { Type = ResourceType.Topic, Name = t.topicName })
+				.ToList();
+
+			var currentConfigs = await admin.DescribeConfigsAsync(resources);
+
+			var toUpdate = new Dictionary<ConfigResource, List<ConfigEntry>>();
+			foreach (var t in topicList)
+			{
+				var resource = new ConfigResource { Type = ResourceType.Topic, Name = t.topicName };
+				var desiredValue = t.retentionBytes.ToString();
+
+				var described = currentConfigs.FirstOrDefault(d => d.ConfigResource.Name == t.topicName);
+				if (described != null)
+				{
+					var current = described.Entries.GetValueOrDefault("retention.bytes");
+					if (current != null && current.Value == desiredValue)
+						continue;
+				}
+
+				toUpdate[resource] = new List<ConfigEntry>
+				{
+					new ConfigEntry { Name = "retention.bytes", Value = desiredValue }
+				};
+			}
+
+			if (toUpdate.Count == 0)
+			{
+				logger?.LogInformation("[KafkaFactory] All {TopicCount} topics already have correct retention.bytes, skipping AlterConfigs", topicList.Count);
+				return;
+			}
+
+			logger?.LogInformation("[KafkaFactory] Updating retention.bytes on {UpdateCount}/{TopicCount} topics", toUpdate.Count, topicList.Count);
+			await admin.AlterConfigsAsync(toUpdate);
 		}
 	}
 }
