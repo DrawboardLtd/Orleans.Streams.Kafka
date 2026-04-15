@@ -25,7 +25,7 @@ namespace Orleans.Streams.Kafka.Core
 		private readonly ILogger<KafkaAdapter> _logger;
 
 		public string Name { get; }
-		public bool IsRewindable { get; } = false; // todo: provide way to pass sequence token (offset) so that we can rewind
+		public bool IsRewindable { get; } = true;
 		public StreamProviderDirection Direction { get; } = StreamProviderDirection.ReadWrite;
 
 		public KafkaAdapter(
