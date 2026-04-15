@@ -235,9 +235,9 @@ namespace Orleans.Streams.Kafka.Core
 
 							var configs = new Dictionary<string, string>();
 							if (tuple.retentionPeriodInMs.HasValue)
-								configs["retention.ms"] = tuple.retentionPeriodInMs.ToString();
+								configs["retention.ms"] = tuple.retentionPeriodInMs.Value.ToString();
 							if (tuple.retentionBytes.HasValue)
-								configs["retention.bytes"] = tuple.retentionBytes.ToString();
+								configs["retention.bytes"] = tuple.retentionBytes.Value.ToString();
 							if (configs.Count > 0)
 								topicSpecification.Configs = configs;
 
@@ -275,6 +275,9 @@ namespace Orleans.Streams.Kafka.Core
 
 				await Task.Delay(delayMs);
 			}
+
+			throw new TimeoutException(
+				$"Timed out after {maxAttempts * delayMs}ms waiting for topic leaders: {string.Join(", ", topicNames)}");
 		}
 
 		private static async Task EnforceTopicRetention(IAdminClient admin, IEnumerable<(string topicName, ulong retentionBytes)> topics, ILogger logger = null)

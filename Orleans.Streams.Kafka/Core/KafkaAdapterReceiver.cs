@@ -180,7 +180,7 @@ namespace Orleans.Streams.Kafka.Core
 				_pollCount++;
 				if (batches.Count > 0)
 				{
-					_logger.LogInformation("[KafkaReceiver] Polled {Count} messages from topic={Topic}, partition={Partition}",
+					_logger.LogDebug("[KafkaReceiver] Polled {Count} messages from topic={Topic}, partition={Partition}",
 						batches.Count, _queueProperties.Namespace, _queueProperties.PartitionId);
 					_emptyPollCount = 0;
 				}
@@ -221,7 +221,12 @@ namespace Orleans.Streams.Kafka.Core
 		}
 
 		private static bool IsTransientError(Error error)
-			=> !error.IsFatal;
+			=> error.Code is Confluent.Kafka.ErrorCode.NotCoordinatorForGroup
+				or Confluent.Kafka.ErrorCode.GroupCoordinatorNotAvailable
+				or Confluent.Kafka.ErrorCode.NotLeaderForPartition
+				or Confluent.Kafka.ErrorCode.LeaderNotAvailable
+				or Confluent.Kafka.ErrorCode.RequestTimedOut
+				or Confluent.Kafka.ErrorCode.BrokerNotAvailable;
 
 		private Task TrackMessage(IBatchContainer container)
 		{

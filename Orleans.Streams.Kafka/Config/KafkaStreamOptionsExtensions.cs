@@ -23,7 +23,7 @@ namespace Orleans.Streams.Kafka.Config
 
 			config.GroupId = options.ConsumerGroupId;
 			config.EnableAutoCommit = false;
-			config.AutoOffsetReset = Confluent.Kafka.AutoOffsetReset.Earliest;
+			config.AutoOffsetReset = (Confluent.Kafka.AutoOffsetReset)(int)options.AutoOffsetReset;
 
 			return config;
 		}

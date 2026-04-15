@@ -20,14 +20,17 @@ namespace Orleans.Streams.Kafka.Config
 		public TimeSpan AdminRequestTimeout { get; set; } = TimeSpan.FromSeconds(5);
 		public ConsumeMode ConsumeMode { get; set; } = ConsumeMode.LastCommittedMessage;
 		public TimeSpan ProducerTimeout { get; set; } = TimeSpan.FromSeconds(30);
-		public bool ApiVersionRequest { get; set; } = true;
-		public string BrokerVersionFallback { get; set; } = "0.10.0.0";
-		public int? ApiVersionFallbackMs { get; set; }
 		public SecurityProtocol SecurityProtocol { get; set; }
 		public string SslCaLocation { get; set; }
 		public string SaslUserName { get; set; }
 		public string SaslPassword { get; set; }
 		public SaslMechanism SaslMechanism { get; set; }
+		/// <summary>
+		/// What to do when the consumer group has no committed offset.
+		/// Latest (default) starts from the tail — safe for production.
+		/// Earliest replays from offset 0 — useful for integration tests with fresh brokers.
+		/// </summary>
+		public AutoOffsetReset AutoOffsetReset { get; set; } = AutoOffsetReset.Latest;
 		public TimeSpan PollBufferTimeout { get; set; } = TimeSpan.FromMilliseconds(500);
 		public bool MessageTrackingEnabled { get; set; }
 		public bool ImportRequestContext { get; set; } = false;
@@ -214,5 +217,15 @@ namespace Orleans.Streams.Kafka.Config
 		Ssl,
 		SaslPlaintext,
 		SaslSsl,
+	}
+
+	/// <summary>
+	/// Mirrors Confluent.Kafka.AutoOffsetReset values.
+	/// </summary>
+	public enum AutoOffsetReset
+	{
+		Latest = 0,
+		Earliest = 1,
+		Error = 2,
 	}
 }
