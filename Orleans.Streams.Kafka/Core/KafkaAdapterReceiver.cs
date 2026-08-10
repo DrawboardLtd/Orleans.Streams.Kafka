@@ -281,8 +281,7 @@ namespace Orleans.Streams.Kafka.Core
 				consumerRef.Assign(new TopicPartitionOffset(_topicPartition, resumeFrom));
 
 				_logger.LogInformation("[KafkaReceiver] Re-assigned topic={Topic}, partition={Partition} at offset={Offset}",
-					_queueProperties.Namespace, _queueProperties.PartitionId, resumeFrom);
-			}
+					_topicPartition.Topic, _queueProperties.PartitionId, resumeFrom);
 			catch (Exception ex)
 			{
 				// Never let recovery be the thing that kills the poll: the caller is about to
