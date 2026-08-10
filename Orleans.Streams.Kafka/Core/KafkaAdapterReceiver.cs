@@ -197,7 +197,7 @@ namespace Orleans.Streams.Kafka.Core
 				if (batches.Count > 0)
 				{
 					_logger.LogDebug("[KafkaReceiver] Polled {Count} messages from topic={Topic}, partition={Partition}",
-						batches.Count, _queueProperties.Namespace, _queueProperties.PartitionId);
+						batches.Count, _topicPartition?.Topic, _queueProperties.PartitionId);
 					_emptyPollCount = 0;
 				}
 				else
@@ -205,14 +205,17 @@ namespace Orleans.Streams.Kafka.Core
 					_emptyPollCount++;
 					if (_emptyPollCount == 1 || _emptyPollCount % 300 == 0) // log first empty poll, then every ~30s
 						_logger.LogWarning("[KafkaReceiver] Empty poll #{EmptyCount} (total polls: {TotalPolls}) topic={Topic}, partition={Partition}",
-							_emptyPollCount, _pollCount, _queueProperties.Namespace, _queueProperties.PartitionId);
+							_emptyPollCount, _pollCount, _topicPartition?.Topic, _queueProperties.PartitionId);
 				}
 
 				return batches;
 			}
 			catch (OperationCanceledException ex) when (ex.CancellationToken.IsCancellationRequested)
 			{
-				return new List<IBatchContainer>();
+				// Same reason the transient path hands its batches back: Consume() has already
+				// advanced past these and _lastConsumedOffset has moved with them, so returning
+				// an empty list here would lose them silently.
+				return batches;
 			}
 			catch (ConsumeException ex) when (IsTransientError(ex.Error))
 			{
@@ -232,7 +235,7 @@ namespace Orleans.Streams.Kafka.Core
 				// on a topic, then 6600 consecutive empty polls and zero messages consumed.
 				_logger.LogWarning(ex,
 					"[KafkaReceiver] Transient consume error (code={Code}) after {Consumed} message(s), re-assigning and retrying on next poll. topic={Topic}, partition={Partition}",
-					ex.Error.Code, batches.Count, _queueProperties.Namespace, _queueProperties.PartitionId);
+					ex.Error.Code, batches.Count, _topicPartition?.Topic, _queueProperties.PartitionId);
 
 				TryReassign();
 
@@ -269,25 +272,29 @@ namespace Orleans.Streams.Kafka.Core
 		/// </remarks>
 		private void TryReassign()
 		{
-			// Shutdown nulls the field, and it can land between the failed poll and this call.
+			// Shutdown nulls the consumer, and it can land between the failed poll and this call.
+			// _topicPartition is only null if Initialize never got as far as setting it, in which
+			// case there is no assignment to restore.
 			var consumerRef = _consumer;
-			if (consumerRef == null)
+			var topicPartition = _topicPartition;
+			if (consumerRef == null || topicPartition == null)
 				return;
 
 			var resumeFrom = ResolveResumeOffset(_lastConsumedOffset, _initialOffset);
 
 			try
 			{
-				consumerRef.Assign(new TopicPartitionOffset(_topicPartition, resumeFrom));
+				consumerRef.Assign(new TopicPartitionOffset(topicPartition, resumeFrom));
 
 				_logger.LogInformation("[KafkaReceiver] Re-assigned topic={Topic}, partition={Partition} at offset={Offset}",
-					_topicPartition.Topic, _queueProperties.PartitionId, resumeFrom);
+					topicPartition.Topic, topicPartition.Partition, resumeFrom);
+			}
 			catch (Exception ex)
 			{
 				// Never let recovery be the thing that kills the poll: the caller is about to
-				// return an empty batch either way, and the next poll gets another attempt.
+				// return whatever it consumed either way, and the next poll gets another attempt.
 				_logger.LogWarning(ex, "[KafkaReceiver] Failed to re-assign topic={Topic}, partition={Partition} at offset={Offset}",
-					_queueProperties.Namespace, _queueProperties.PartitionId, resumeFrom);
+					topicPartition.Topic, topicPartition.Partition, resumeFrom);
 			}
 		}
 
