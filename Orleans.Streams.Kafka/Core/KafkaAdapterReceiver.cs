@@ -31,6 +31,13 @@ namespace Orleans.Streams.Kafka.Core
 		private long _pollCount;
 		private long _emptyPollCount;
 
+		// Enough to redo the Assign() from Initialize after a transient failure. _lastConsumedOffset
+		// is the raw offset of the last message this receiver actually returned, so recovery can
+		// resume from where we got to rather than from the configured start position.
+		private TopicPartition _topicPartition;
+		private Offset _initialOffset;
+		private long? _lastConsumedOffset;
+
 		public KafkaAdapterReceiver(
 			string providerName,
 			QueueProperties queueProperties,
@@ -80,7 +87,10 @@ namespace Orleans.Streams.Kafka.Core
 			var kafkaTopicName = (_options.TopicPrefix ?? string.Empty) + _queueProperties.Namespace;
 			_logger.LogInformation("[KafkaReceiver] Initialize: topic={Topic}, partition={Partition}, offset={Offset}, consumeMode={ConsumeMode}, brokers={Brokers}",
 				kafkaTopicName, _queueProperties.PartitionId, offsetMode, _options.ConsumeMode, _options.BrokerList);
-			_consumer.Assign(new TopicPartitionOffset(kafkaTopicName, (int)_queueProperties.PartitionId, offsetMode));
+
+			_topicPartition = new TopicPartition(kafkaTopicName, (int)_queueProperties.PartitionId);
+			_initialOffset = offsetMode;
+			_consumer.Assign(new TopicPartitionOffset(_topicPartition, _initialOffset));
 
 			return Task.CompletedTask;
 		}
@@ -154,9 +164,14 @@ namespace Orleans.Streams.Kafka.Core
 
 		private async Task<IList<IBatchContainer>> PollForMessages(int maxCount, CancellationTokenSource cancellation)
 		{
+			// Declared outside the try so the transient-error path can hand back whatever this
+			// poll already consumed. Consume() has advanced the consumer past those messages, so
+			// dropping them loses them for good -- doubly so now that recovery re-assigns at the
+			// offset after the last one we returned.
+			var batches = new List<IBatchContainer>();
+
 			try
 			{
-				var batches = new List<IBatchContainer>();
 				for (var i = 0; i < maxCount && !cancellation.IsCancellationRequested; i++)
 				{
 					var consumeResult = _consumer.Consume(_options.PollTimeout);
@@ -175,6 +190,7 @@ namespace Orleans.Streams.Kafka.Core
 					await TrackMessage(batchContainer);
 
 					batches.Add(batchContainer);
+					_lastConsumedOffset = consumeResult.Offset.Value;
 				}
 
 				_pollCount++;
@@ -204,10 +220,23 @@ namespace Orleans.Streams.Kafka.Core
 				// leader is still electing) are safe to retry.  Return empty so the
 				// PersistentStreamPullingAgent retries on its normal poll interval instead
 				// of entering its multi-minute error-backoff cycle.
+				//
+				// Re-polling alone is NOT enough to recover, which is why the re-Assign below
+				// exists.  We assign manually (no Subscribe), so there is no group rebalance to
+				// re-drive the assignment, and an Offset.Stored assignment resolves its start
+				// position through the group coordinator.  If that resolution is what failed,
+				// the partition is left with no valid fetch position and every subsequent
+				// Consume() returns null forever -- the receiver reports empty polls for the
+				// rest of the process lifetime while producers keep publishing.  Observed on a
+				// silo boot that raced Redpanda's coordinator election: one NotCoordinatorForGroup
+				// on a topic, then 6600 consecutive empty polls and zero messages consumed.
 				_logger.LogWarning(ex,
-					"[KafkaReceiver] Transient consume error (code={Code}), will retry on next poll. topic={Topic}, partition={Partition}",
-					ex.Error.Code, _queueProperties.Namespace, _queueProperties.PartitionId);
-				return new List<IBatchContainer>();
+					"[KafkaReceiver] Transient consume error (code={Code}) after {Consumed} message(s), re-assigning and retrying on next poll. topic={Topic}, partition={Partition}",
+					ex.Error.Code, batches.Count, _queueProperties.Namespace, _queueProperties.PartitionId);
+
+				TryReassign();
+
+				return batches;
 			}
 			catch (Exception ex)
 			{
@@ -219,6 +248,58 @@ namespace Orleans.Streams.Kafka.Core
 				cancellation.Dispose();
 			}
 		}
+
+		/// <summary>
+		/// Re-establishes the manual partition assignment after a transient consume error, so a
+		/// partition left without a valid fetch position starts moving again.
+		/// </summary>
+		/// <remarks>
+		/// Resumes at the message after the last one we returned, NOT at the configured start
+		/// position: re-assigning at <see cref="Offset.Beginning"/> would replay the whole topic
+		/// on every blip, and at <see cref="Offset.End"/> would silently skip whatever arrived
+		/// while we were broken.  Only when nothing has been consumed yet -- which is the case
+		/// this fix is really about, a failure during startup -- does it fall back to the
+		/// configured offset, and that is exactly what <see cref="Initialize"/> already asked for.
+		/// <para>
+		/// Assign() is local: it records the position and lets the background fetcher resolve it,
+		/// so a broker still in trouble surfaces on the next Consume() as another transient error
+		/// and we simply come back through here. That makes this self-healing rather than a
+		/// one-shot repair, at the cost of one Assign per failed poll while the outage lasts.
+		/// </para>
+		/// </remarks>
+		private void TryReassign()
+		{
+			// Shutdown nulls the field, and it can land between the failed poll and this call.
+			var consumerRef = _consumer;
+			if (consumerRef == null)
+				return;
+
+			var resumeFrom = ResolveResumeOffset(_lastConsumedOffset, _initialOffset);
+
+			try
+			{
+				consumerRef.Assign(new TopicPartitionOffset(_topicPartition, resumeFrom));
+
+				_logger.LogInformation("[KafkaReceiver] Re-assigned topic={Topic}, partition={Partition} at offset={Offset}",
+					_queueProperties.Namespace, _queueProperties.PartitionId, resumeFrom);
+			}
+			catch (Exception ex)
+			{
+				// Never let recovery be the thing that kills the poll: the caller is about to
+				// return an empty batch either way, and the next poll gets another attempt.
+				_logger.LogWarning(ex, "[KafkaReceiver] Failed to re-assign topic={Topic}, partition={Partition} at offset={Offset}",
+					_queueProperties.Namespace, _queueProperties.PartitionId, resumeFrom);
+			}
+		}
+
+		/// <summary>
+		/// Where a re-assignment should resume: the message after the last one consumed, or the
+		/// offset <see cref="Initialize"/> used when this receiver has not consumed anything yet.
+		/// </summary>
+		internal static Offset ResolveResumeOffset(long? lastConsumedOffset, Offset initialOffset)
+			=> lastConsumedOffset.HasValue
+				? new Offset(lastConsumedOffset.Value + 1)
+				: initialOffset;
 
 		private static bool IsTransientError(Error error)
 			=> error.Code is Confluent.Kafka.ErrorCode.NotCoordinatorForGroup
