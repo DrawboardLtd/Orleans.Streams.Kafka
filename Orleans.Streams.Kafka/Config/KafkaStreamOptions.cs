@@ -36,11 +36,15 @@ namespace Orleans.Streams.Kafka.Config
 		public bool ImportRequestContext { get; set; } = false;
 
 		/// <summary>
-		/// How long a queue cache cursor that pins the cache without making progress is left alone before the cache disposes it.
-		/// A cursor stuck in the oldest cache bucket blocks purge, so the offset commit freezes and the pulling agent stops reading the partition.
-		/// Default 3 minutes. <see cref="TimeSpan.Zero"/> disables eviction and uses the plain SimpleQueueAdapterCache.
+		/// How long a queue cache cursor with unread items may go without advancing before the cache evicts it. An evicted cursor
+		/// is disposed, so it stops pinning the cache; a cursor stuck in the oldest cache bucket otherwise blocks purge, the offset
+		/// commit freezes and the pulling agent stops reading the partition. A cursor that is waiting at the head of the cache with
+		/// nothing to read is never evicted.
+		/// The value must comfortably exceed twice the silo's messaging <c>ResponseTimeout</c>: a live but slow consumer can sit
+		/// without advancing for one delivery timeout plus the error call that follows it.
+		/// Default 10 minutes. <see cref="TimeSpan.Zero"/> disables eviction and uses the plain SimpleQueueAdapterCache.
 		/// </summary>
-		public TimeSpan CacheCursorIdleEviction { get; set; } = TimeSpan.FromMinutes(3);
+		public TimeSpan CacheCursorIdleEviction { get; set; } = TimeSpan.FromMinutes(10);
 
 		/// <summary>
 		/// How long (ms) resolved broker addresses are cached before re-resolving DNS.

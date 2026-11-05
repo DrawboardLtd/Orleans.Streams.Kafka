@@ -13,8 +13,8 @@ public class KafkaAdapterCacheSelectionTests
 	private static readonly SimpleQueueCacheOptions CacheOptions = new() { CacheSize = 4096 };
 
 	[Fact]
-	public void T5_default_is_three_minutes()
-		=> Assert.Equal(TimeSpan.FromMinutes(3), new KafkaStreamOptions().CacheCursorIdleEviction);
+	public void T5_default_is_ten_minutes()
+		=> Assert.Equal(TimeSpan.FromMinutes(10), new KafkaStreamOptions().CacheCursorIdleEviction);
 
 	[Fact]
 	public void T5_zero_produces_the_plain_SimpleQueueAdapterCache()

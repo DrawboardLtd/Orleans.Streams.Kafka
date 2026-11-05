@@ -10,6 +10,7 @@ namespace Orleans.Streams.Kafka.Tests;
 
 public class StaleCursorEvictingQueueCacheTests
 {
+	// Passed to the cache explicitly; the scenarios do not depend on the option default.
 	private static readonly TimeSpan IdleEviction = TimeSpan.FromMinutes(3);
 	private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(5);
 
@@ -38,9 +39,11 @@ public class StaleCursorEvictingQueueCacheTests
 	/// <summary>
 	/// Stream 0's consumer is stuck with a set cursor in the oldest bucket, the other 49 consumers drain everything.
 	/// The cache reaches 10 buckets (under pressure) and the commit is frozen. After IdleEviction the next tick must purge,
-	/// the committed offset must advance and the cache must not be under pressure. The cache is returned for further assertions.
+	/// the committed offset must advance and the cache must not be under pressure. Returns what the recovery tick produced.
 	/// </summary>
-	private IQueueCache RunStuckCursorScenario(IQueueCache cache)
+	private sealed record StuckOutcome(IQueueCache Cache, long FrozenAt, int Purged, long Committed, bool UnderPressure);
+
+	private StuckOutcome RunStuckCursorScenario(IQueueCache cache)
 	{
 		var clock = _clock.GetUtcNow();
 		var sim = new PullingAgentSimulation(cache) { BeforeEachTick = () => _clock.Advance(TickInterval) };
@@ -55,23 +58,31 @@ public class StaleCursorEvictingQueueCacheTests
 		Assert.True(cache.IsUnderPressure(), "precondition: still under pressure");
 		_output.WriteLine($"before: committed={sim.CommittedOffset} underPressure={cache.IsUnderPressure()}");
 
-		// 3 minutes and 1 second after the stuck cursor's last progress (its creation). The agent refreshed it on every tick in between.
+		// IdleEviction (3 minutes, set explicitly, not the option default) and 1 second after the stuck cursor's last progress (its creation). The agent refreshed it on every tick in between.
 		_clock.Advance(clock + IdleEviction + TimeSpan.FromSeconds(1) - _clock.GetUtcNow());
 		var tick = sim.Tick();
 		_output.WriteLine($"after {IdleEviction + TimeSpan.FromSeconds(1)}: purged={tick.Purged} committed={sim.CommittedOffset} underPressure={cache.IsUnderPressure()}");
 
-		// Recovery.
-		Assert.True(tick.Purged > 0, $"TryPurgeFromCache purged {tick.Purged} items");
-		Assert.True(sim.CommittedOffset > frozenAt, $"max purged offset stayed at {sim.CommittedOffset}");
-		Assert.False(cache.IsUnderPressure(), "the cache is still under pressure");
-		return cache;
+		return new StuckOutcome(cache, frozenAt, tick.Purged, sim.CommittedOffset, cache.IsUnderPressure());
+	}
+
+	private static void AssertRecovered(StuckOutcome outcome)
+	{
+		Assert.True(outcome.Purged > 0, $"TryPurgeFromCache purged {outcome.Purged} items");
+		Assert.True(outcome.Committed > outcome.FrozenAt, $"max purged offset stayed at {outcome.Committed}");
+		Assert.False(outcome.UnderPressure, "the cache is still under pressure");
 	}
 
 	[Fact]
 	public void T1_evicting_cache_recovers_from_a_stuck_cursor()
 	{
-		var cache = (StaleCursorEvictingQueueCache)RunStuckCursorScenario(NewEvictingCache(4096));
+		var outcome = RunStuckCursorScenario(NewEvictingCache(4096));
+		var cache = (StaleCursorEvictingQueueCache)outcome.Cache;
 
+		AssertRecovered(outcome);
+		Assert.Equal(3682, outcome.Purged);
+		Assert.Equal(3681, outcome.Committed);
+		Assert.False(outcome.UnderPressure);
 		Assert.Equal(1, cache.EvictedCursorCount);
 		var warning = Assert.Single(_logs.Warnings);
 		Assert.Equal(LogLevel.Warning, warning.Level);
@@ -85,14 +96,17 @@ public class StaleCursorEvictingQueueCacheTests
 	public void T1_plain_cache_stays_frozen()
 	{
 		// The identical scenario on the plain SimpleQueueCache fails its recovery assertions. Set EVICT_T1_SHOW_PLAIN_FAILURE=1 to see the raw failure.
-		var plain = new SimpleQueueCache(4096, NullLogger.Instance);
+		var outcome = RunStuckCursorScenario(new SimpleQueueCache(4096, NullLogger.Instance));
 		if (Environment.GetEnvironmentVariable("EVICT_T1_SHOW_PLAIN_FAILURE") == "1")
 		{
-			RunStuckCursorScenario(plain);
+			AssertRecovered(outcome);
 			return;
 		}
 
-		var failure = Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => RunStuckCursorScenario(plain));
+		Assert.Equal(0, outcome.Purged);
+		Assert.Equal(-1, outcome.Committed);
+		Assert.True(outcome.UnderPressure);
+		var failure = Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => AssertRecovered(outcome));
 		_output.WriteLine("plain SimpleQueueCache failed the recovery assertion: " + failure.Message);
 		Assert.Contains("TryPurgeFromCache purged 0 items", failure.Message);
 	}
