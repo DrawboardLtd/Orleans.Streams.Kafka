@@ -36,6 +36,13 @@ namespace Orleans.Streams.Kafka.Config
 		public bool ImportRequestContext { get; set; } = false;
 
 		/// <summary>
+		/// How long a queue cache cursor that pins the cache without making progress is left alone before the cache disposes it.
+		/// A cursor stuck in the oldest cache bucket blocks purge, so the offset commit freezes and the pulling agent stops reading the partition.
+		/// Default 3 minutes. <see cref="TimeSpan.Zero"/> disables eviction and uses the plain SimpleQueueAdapterCache.
+		/// </summary>
+		public TimeSpan CacheCursorIdleEviction { get; set; } = TimeSpan.FromMinutes(3);
+
+		/// <summary>
 		/// How long (ms) resolved broker addresses are cached before re-resolving DNS.
 		/// Keeps clients resilient to broker pods moving to new IPs.
 		/// Default 5000 (5s). Set 0 to re-resolve on every connect attempt.

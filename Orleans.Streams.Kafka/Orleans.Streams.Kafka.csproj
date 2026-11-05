@@ -17,6 +17,9 @@
     <PackageReference Include="Confluent.SchemaRegistry.Serdes.Avro" Version="2.12.0" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Orleans.Streams.Kafka.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Orleans.Streams.Utils" Version="$(StreamUtilsVersion)" />
   </ItemGroup>
 </Project>

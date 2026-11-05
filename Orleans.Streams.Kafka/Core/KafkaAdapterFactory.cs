@@ -72,11 +72,7 @@ namespace Orleans.Streams.Kafka.Core
 			if (options.Topics != null && options.Topics.Count == 0)
 				throw new ArgumentNullException(nameof(options.Topics));
 
-			_adapterCache = new SimpleQueueAdapterCache(
-				cacheOptions,
-				name,
-				loggerFactory
-			);
+			_adapterCache = CreateAdapterCache(options, cacheOptions, name, loggerFactory);
 
 			_queueProperties = GetQueuesProperties().ToDictionary(q => q.QueueName);
 			_logger.LogInformation("[KafkaFactory] Created for provider={Name}, topics configured={TopicCount}, queues discovered={QueueCount}, prefix={Prefix}, brokers={Brokers}",
@@ -101,6 +97,36 @@ namespace Orleans.Streams.Kafka.Core
 
 		public IQueueAdapterCache GetQueueAdapterCache()
 			=> _adapterCache;
+
+		/// <summary>
+		/// The plain <see cref="SimpleQueueAdapterCache"/> when <see cref="KafkaStreamOptions.CacheCursorIdleEviction"/> is zero,
+		/// otherwise one whose queue caches evict cursors that sit in the cache without making progress.
+		/// </summary>
+		internal static IQueueAdapterCache CreateAdapterCache(
+			KafkaStreamOptions options,
+			SimpleQueueCacheOptions cacheOptions,
+			string name,
+			ILoggerFactory loggerFactory,
+			TimeProvider timeProvider = null
+		)
+		{
+			if (options.CacheCursorIdleEviction < TimeSpan.Zero)
+				throw new ArgumentOutOfRangeException(
+					nameof(options),
+					options.CacheCursorIdleEviction,
+					$"{nameof(KafkaStreamOptions.CacheCursorIdleEviction)} must not be negative."
+				);
+
+			return options.CacheCursorIdleEviction == TimeSpan.Zero
+				? new SimpleQueueAdapterCache(cacheOptions, name, loggerFactory)
+				: new StaleCursorEvictingQueueAdapterCache(
+					cacheOptions,
+					name,
+					loggerFactory,
+					options.CacheCursorIdleEviction,
+					timeProvider
+				);
+		}
 
 		public IStreamQueueMapper GetStreamQueueMapper()
 			=> _streamQueueMapper;
